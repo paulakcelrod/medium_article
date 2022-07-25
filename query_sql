@@ -1,0 +1,163 @@
+WITH events AS (
+  SELECT
+    user_id,
+    campaign_id,
+    line_item_id,
+    impression_date,
+    browser_family,
+    operating_system,
+    device_type,
+    site,
+    CASE WHEN site SIMILAR TO '(?i)ID:' THEN 'APP'
+    ELSE 'WEB' END AS environment_param,
+    SUM(impressions) AS impressions, 
+    0 AS purchases,
+    0 AS total_product_sales,    --add your own KPIs if needed
+    SUM(total_cost) AS total_cost -- to find out how much the campaign cost 
+  FROM
+    dsp_impressions
+  WHERE
+    campaign_id IN (11111, 
+    22222,
+    33333,
+    44444
+      ) -- add all necessary id campaigns
+  GROUP BY
+    1,
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9
+  UNION ALL
+  SELECT
+    user_id,
+    campaign_id,
+    line_item_id,
+    impression_date,
+    browser_family,
+    operating_system,
+    device_type,
+    site,
+    CASE WHEN site SIMILAR TO '(?i)ID:' THEN 'APP'
+    ELSE 'WEB' END AS environment_param,
+    0 AS impressions,
+    SUM(purchases) AS purchases,
+    SUM(total_product_sales) AS total_product_sales,    --add your own KPIs if needed
+    0 AS total_cost
+  FROM
+    amazon_attributed_events_by_traffic_time
+  WHERE
+campaign_id IN (11111, 
+    22222,
+    33333,
+    44444
+      ) -- add all necessary id campaigns
+  GROUP BY
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+),
+events_by_user AS (
+  SELECT
+    user_id,
+    campaign_id,
+    line_item_id,
+    impression_date,
+    browser_family,
+    operating_system,
+    device_type,
+    site,
+    CASE WHEN site SIMILAR TO '(?i)ID:' THEN 'APP'
+    ELSE 'WEB' END AS environment_param,
+    IF(
+      SUM(impressions) > 0,
+      SUM(impressions),
+      SUM(purchases)
+    ) AS impressions,
+    LEAST(
+      IF(
+        SUM(impressions) > 0,
+        /*OPTIONAL UPDATE frequency bucket if necessary*/
+        SUM(impressions),
+        SUM(purchases)
+      ),
+      25
+    ) AS frequency,
+    SUM(purchases) AS purchases,
+    SUM(total_product_sales) AS total_product_sales,
+    SUM(total_cost) AS total_cost
+  FROM
+    events
+  GROUP BY
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+),
+frequency_by_user AS (
+  SELECT
+    campaign_id,
+    line_item_id,
+    impressions,
+    impression_date,
+    browser_family,
+    operating_system,
+    device_type,
+    site,
+    CASE WHEN site SIMILAR TO '(?i)ID:' THEN 'APP'
+    ELSE 'WEB' END AS environment_param,
+    CONCAT(
+      FORMAT('frequency_%02d', frequency),
+      /*OPTIONAL UPDATE frequency bucket if necessary*/
+      IF(frequency = 25, '+', '')
+    ) AS frequency_bucket,
+    purchases,
+    total_product_sales,
+    total_cost,
+    user_id
+  FROM
+    events_by_user
+  WHERE
+    user_id IS NOT NULL
+)
+SELECT
+  campaign_id,
+  line_item_id,
+  frequency_bucket,
+  impression_date,
+  browser_family,
+  operating_system,
+  device_type, 
+  CASE WHEN site SIMILAR TO '(?i)ID:' THEN 'APP'
+  ELSE 'WEB' END AS environment_param,  
+  SUM(purchases) AS purchases,
+  SUM(total_product_sales) AS total_product_sales,
+  SUM(total_cost) AS total_cost,
+  COUNT(user_id) AS users_in_bucket,
+  COUNT(distinct user_id) as users_in_bucket_distinct,
+  SUM(impressions) AS impressions_in_bucket
+FROM
+  frequency_by_user
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8
